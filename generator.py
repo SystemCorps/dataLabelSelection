@@ -5,6 +5,8 @@ import os
 import sys
 from glob import glob
 import json
+import pickle
+import gzip
 import sys
 from PyQt5.QtWidgets import *
 from PyQt5 import uic
@@ -17,26 +19,81 @@ class ResultWindow(QDialog):
     def __init__(self, parent):
         super(ResultWindow, self).__init__(parent)
         uic.loadUi('resultwindow.ui', self)
-        self.show()
+        self.parent = parent
+
+        self.resultPrev.clicked.connect(self.parent.setVGSavedPrev)
+        self.resultNext.clicked.connect(self.parent.setVGSavedNext)
+        #self.updateResult()
+
+    def updateResult(self):
+        pixmap = self.drawResult()
+        self.resultPixmap.setPixmap(pixmap)
+        
+    def drawResult(self):
+        img = cv2.cvtColor(self.parent.currentDCMImgs[self.parent.currentDCMIdx], cv2.COLOR_GRAY2RGB)
+        
+        try:
+            selectedLabel = self.parent.database[self.parent.currentPatient][self.parent.currentSet][self.parent.currentFrame]['SelectedLabels']
+            if selectedLabel:
+                line = self.parent.makeSingleLine(self.parent.currentPatient,
+                                                  self.parent.currentSet, self.parent.currentFrame,
+                                                  self.parent.showSavedIdx)
+            
+                img = self.parent.drawSavedLabel(line, img, xyswap=True, value=[255, 0, 0])
+
+        except (KeyError, TypeError):
+            pass
+        
+        w, h, c = img.shape
+        bytesPerLines = 3 * w
+        qImg = QImage(img.data, w, h, bytesPerLines, QImage.Format_RGB888)
+        pixmap = QPixmap(qImg)
+
+        return pixmap
+
+
 
 class LabelSelection(QMainWindow):
 
-    def __init__(self, uiPath='mainwindow.ui', angioRoot='./angio_labels', wiringRoot='./gw_labels', dcmRoot='./dicoms', imgSize=(512,512, 3)):
+    def __init__(self, uiPath='mainwindow.ui', angioRoot='.'+os.sep+'angio_labels', wiringRoot='.'+os.sep+'gw_labels', dcmRoot='.'+os.sep+'dicoms', imgSize=(512,512, 3)):
         super(LabelSelection, self).__init__()
         uic.loadUi(uiPath, self)
         self.show()
+
+        try:
+            self.savePath = QFileDialog.getSaveFileName(self, 'Save File')[0]
+        except:
+            self.savePath = "setting.pkl"
+        self.savePathDisp.setText(self.savePath)
+        self.genSavePath = None
+
         self.angioRoot = angioRoot
         self.wiringRoot = wiringRoot
         self.dcmRoot = dcmRoot
         self.imgSize = imgSize
 
+        self.steps = 50
+        self.minLen = 30
+
         self.TotalList = self.getIntersection()
+
+        try:
+            with open(self.savePath, 'rb') as pklfile:
+                self.database = pickle.load(pklfile)
+            self.database.keys()
+        except:
+            self.database = dict.fromkeys(list(self.TotalList.keys()))
+
+        self.ResultWindow = ResultWindow(self)
+
 
         # Selectable
         self.showSel = [1, 0, 0, 1]
         self.levelShowSel = {1:0, 2:0, 3:0, 4:0}
         self.levelSel = {1:0, 2:0, 3:0, 4:0}
         self.levelColor = {1:[255, 0, 0], 2:[255, 204, 51], 3:[51, 255, 255], 4:[0, 0, 255]}
+        self.showSavedIdx = 0
+        self.showSavedFlag = 0
 
         self.currentPatientIdx = 0
         self.currentPatient = list(self.TotalList.keys())[self.currentPatientIdx]
@@ -55,11 +112,16 @@ class LabelSelection(QMainWindow):
 
         self.currentDCMImgs, self.currentDCMPaths = self.getDicoms(self.currentPatient,
                                                                    self.currentFrame + self.frameOffset)
-        self.currentDCMIdx = 0
-
-        self.database = dict.fromkeys(list(self.TotalList.keys()))
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+             self.currentDCMIdx = 0
 
         self.sliderUpdate()
+
 
         self.pnumDisp.setText("{}".format(self.currentPatient))
         self.psetDisp.setText("{}".format(self.currentSet))
@@ -67,8 +129,8 @@ class LabelSelection(QMainWindow):
         # Buttons
         self.dcmNumNext.clicked.connect(self.setDCMNumNext)
         self.dcmNumPrev.clicked.connect(self.setDCMNumPrev)
-        #self.genData.clicked.connect(self.generateDataset)
-        #self.genPath.clicked.connect(self.setGenSavePath)
+        self.genData.clicked.connect(self.generateDataset)
+        self.genPath.clicked.connect(self.setGenSaveRoot)
         self.level1Next.clicked.connect(self.setL1Next)
         self.level1Prev.clicked.connect(self.setL1Prev)
         self.level2Next.clicked.connect(self.setL2Next)
@@ -82,10 +144,11 @@ class LabelSelection(QMainWindow):
         self.psetNext.clicked.connect(self.setPSNext)
         self.psetPrev.clicked.connect(self.setPSPrev)
         self.resetDICOM.clicked.connect(self.resetDCMset)
-        #self.delVG.clicked.connect(self.resetVGset)
-        #self.savePath.clicked.connect(self.setSavePath)
+        self.delVG.clicked.connect(self.delVGset)
+        self.savePathBut.clicked.connect(self.setSavePath)
+        self.saveSettingBut.clicked.connect(self.save)
         self.setDICOM.clicked.connect(self.setDCMset)
-        #self.setVG.clicked.connect(self.setVGset)
+        self.setVG.clicked.connect(self.setVGset)
         self.wiringNext.clicked.connect(self.setWireNext)
         self.wiringPrev.clicked.connect(self.setWirePrev)
         self.angioFrameNext.clicked.connect(self.setAngioFrameNext)
@@ -93,6 +156,10 @@ class LabelSelection(QMainWindow):
         self.dcmOffsetUp.clicked.connect(self.setDCMOffsetUp)
         self.dcmOffsetDown.clicked.connect(self.setDCMOffsetDown)
         self.showResult.clicked.connect(self.showResultWindow)
+
+        self.setSavedPrev.clicked.connect(self.setVGSavedPrev)
+        self.setSavedNext.clicked.connect(self.setVGSavedNext)
+
 
         # checkbox
         self.showDICOM.stateChanged.connect(self.showing)
@@ -103,6 +170,7 @@ class LabelSelection(QMainWindow):
         self.level2Check.stateChanged.connect(self.levelCheck)
         self.level3Check.stateChanged.connect(self.levelCheck)
         self.level4Check.stateChanged.connect(self.levelCheck)
+        self.showVGSaved.stateChanged.connect(self.showSaved)
         # slider
         self.wiringSlider.valueChanged[int].connect(self.sliderWire)
 
@@ -110,31 +178,260 @@ class LabelSelection(QMainWindow):
         self.dcmInfoDisp()
         self.frameInfoDisp()
         self.levelInfoDisp()
+        self.showSavedEnb()
         # Image Show
         self.updateImage()
 
+    def closeEvent(self, event):
+        self.save()
+    
+    def setSavePath(self):
+        self.savePath = QFileDialog.getSaveFileName(self, 'Save File', "setting.txt")
+        self.savePathDisp.setText(self.savePath)
+
+    def save(self):
+        with open(self.savePath, 'wb') as pklfile:
+            pickle.dump(self.database, pklfile, pickle.HIGHEST_PROTOCOL)
+
+    def setGenSaveRoot(self):
+        self.genSavePath = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        self.genPathDisp.setText(self.genSavePath)
+
+
+    def generateDataset(self):
+        if not self.genSavePath:
+            self.setGenSaveRoot()
+
+        for patient in self.database.keys():
+            if self.database[patient]:
+                pData = self.database[patient]
+                for set in pData.keys():
+                    sData = pData[set]
+                    dcmData = pydicom.dcmread(sData['DCMPath'])
+                    angios = dcmData.pixel_array
+                    
+                    frameList = list(sData.keys())
+                    frameList.remove('DCMPath')
+
+                    for frame in frameList:
+                        refAngio = angios[frame]
+                        npAngio = np.array(refAngio, dtype=np.uint8)
+                        PILAngio = Image.fromarray(npAngio)
+                        head, name, full = self.savePathName(patient, set, 'Angio', frame, angio=True)
+                        if not os.path.exists(head):
+                            os.makedirs(head)
+                        PILAngio.save(full)
+
+                        selectedLabels = sData[frame]['SelectedLabels']
+
+                        for i in range(len(selectedLabels)):
+                            singleLine = self.makeSingleLine(patient, set, frame, idx=i)
+                            splitted = self.genSplitted(singleLine)
+
+                            for j in range(self.steps):
+                                lineImg = self.drawSavedLabel(splitted[j], xyswap=True, value=0)
+                                PILImg = Image.fromarray(lineImg)
+                                head, name, full = self.savePathName(patient, set, 'virtualGW', frame, subIdx=i, stepIdx=j)
+                                if not os.path.exists(head):
+                                    os.makedirs(head)
+                                PILImg.save(full)
+
+                                npLine = np.array(lineImg, dtype=np.uint8)
+
+                                regImg = ((npAngio/255) * (npLine/255) * 255).astype(np.uint8)
+                                regPILImg = Image.fromarray(regImg)
+                                head, name, full = self.savePathName(patient, set, 'virtualRG', frame, subIdx=i, stepIdx=j)
+                                if not os.path.exists(head):
+                                    os.makedirs(head)
+                                regPILImg.save(full)
+                        
+
+
+    def savePathName(self, patient, set, folder, frame, subIdx=None, stepIdx=None, angio=False):
+        temp = os.path.join(self.genSavePath, "{0:02d}".format(patient))
+        temp = os.path.join(temp, set)
+        temp = os.path.join(temp, folder)
+        if subIdx is not None:
+            temp = os.path.join(temp, "{0:02d}".format(subIdx))
+        head = temp
+        if angio:
+            name = "{0:05d}.png".format(frame)
+        else:
+            name = "{0:03d}_".format(frame) + "{0:05d}.png".format(stepIdx)
+        full = os.path.join(head, name)
+        return head, name, full
+
+
+    def genSplitted(self, line):
+        totalLen = len(line)
+        numPerStep = int(np.ceil((totalLen - self.minLen) / (self.steps - 1)))
+
+        lines = []
+
+        for i in range(self.steps):
+            if i == 0:
+                endIdx = self.minLen
+            else:
+                endIdx = self.minLen + i * numPerStep
+
+            if endIdx >= totalLen - 1:
+                temp = line
+            else:
+                temp = line[:endIdx]
+            lines.append(temp)
+
+        return lines
+            
+
+                            
+
     def showResultWindow(self):
-        ResultWindow(self)
+        #ResultWindow(self)
+        #self.ResultWindow()
+        self.ResultWindow.show()
+        self.ResultWindow.updateResult()
 
 
-    #def makeResult(self):
+    def makeSingleLine(self, patient, set, frame, idx=0):
 
+        lineSet = self.database[patient][set][frame]['SelectedLabels'][idx]
+
+        for key in lineSet.keys():
+            if key == 1:
+                output = lineSet[key]
+            elif key==2:
+                start2nd = np.array(lineSet[key][0])
+                line1st = np.array(output)
+                norm = np.linalg.norm(line1st - start2nd, axis=1)
+                line1stEndIdx = np.argmin(norm)
+
+                output = output[:line1stEndIdx]
+                output.extend(lineSet[key])
+        
+        return output
+
+
+
+    def delVGset(self):
+        try:
+            del self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'][self.showSavedIdx]
+        except:
+            pass
+
+        self.showSavedIdx -= 1
+        if self.showSavedIdx < 0:
+            self.showSavedIdx = 0
+
+        self.showSavedDisp()
+        self.updateImage()
+
+    def setVGSavedPrev(self):
+        self.showSavedIdx -= 1
+        if self.showSavedIdx < 0:
+            self.showSavedIdx = 0
+
+        self.showSavedDisp()
+        self.updateImage()
+
+
+    def setVGSavedNext(self):
+        self.showSavedIdx += 1
+        try:
+            selectedLabels = self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels']
+            numLabels = len(selectedLabels)
+        except:
+            numLabels = 0
+
+        if self.showSavedIdx > numLabels-1:
+            self.showSavedIdx = numLabels-1
+        elif numLabels == 0:
+            self.showSavedIdx = 0       
+
+        if numLabels:
+            text = "{}/{}".format(self.showSavedIdx + 1, numLabels)
+            self.selectedSaved.setText(text)
+        else:
+            self.selectedSaved.setText("None")
+
+        self.updateImage()
+
+
+    def showSaved(self):
+        if self.showVGSaved.isChecked():
+            self.showSavedFlag = True
+            self.updateImage()
+        else:
+            self.showSavedFlag = False
+            self.updateImage()
+
+
+    def drawSavedLabel(self, label, base=None, size=(512,512), xyswap=False, value=[255, 0, 0]):
+        if base is None:
+            if type(value) == int:
+                base = np.ones(size, dtype=np.uint8) * 255
+            elif type(value) == list:
+                newSize = list(size)
+                newSize.append(len(value))
+                base = np.ones(tuple(newSize), dtype=np.uint8) * 255
+
+        for x, y in label:
+            if xyswap:
+                base[y, x] = value
+            else:
+                base[x, y] = value
+
+        return base
+
+
+    def showSavedDisp(self):
+        try:
+            selectedLabels = self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels']
+            numLabels = len(selectedLabels)
+        except:
+            numLabels = 0
+
+        if numLabels:
+            text = "{}/{}".format(self.showSavedIdx + 1, numLabels)
+            self.selectedSaved.setText(text)
+        else:
+            self.selectedSaved.setText("None")
+            self.showSavedFlag = False
+            self.showVGSaved.setEnabled(False)
+            self.showVGSaved.setChecked(False)
+
+
+    def showSavedEnb(self):
+        try:
+            selectedLabels = self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'][self.showSavedIdx]
+            self.showVGSaved.setEnabled(True)
+        except:
+            self.showVGSaved.setEnabled(False)
+        self.showSavedDisp()
+    
 
     def setVGset(self):
-        self.database[self.currentPatient][self.currentSet][self.currentFrame] = {}
-        try:
-            self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabelIdx'].append(self.levelShowSel)
-            self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'].append([self.currentLabel[1][self.levelShowSel[1]],
-                                                                                                             self.currentLabel[2][self.levelShowSel[2]],
-                                                                                                             self.currentLabel[3][self.levelShowSel[3]],
-                                                                                                             self.currentLabel[4][self.levelShowSel[4]]])
+        if self.currentFrame in self.database[self.currentPatient][self.currentSet].keys():
+            selectedLabels = {}
+            for key in self.levelShowSel.keys():
+                if self.levelShowSel[key]:
+                    selectedLabels[key] = self.currentLabel[key][self.levelSel[key]]
 
-        except:
+            self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'].append(selectedLabels)
+        else:
+            self.database[self.currentPatient][self.currentSet][self.currentFrame] = {}
+            self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'] = []
+            
+            selectedLabels = {}
+            for key in self.levelShowSel.keys():
+                if self.levelShowSel[key]:
+                    selectedLabels[key] = self.currentLabel[key][self.levelSel[key]]
 
-
-
-
-
+            self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'].append(selectedLabels)
+        self.showVGSaved.setEnabled(True)
+        self.showSavedDisp()
+        self.updateImage()
+        self.save()
+    
 
     def setDCMset(self):
         if self.database[self.currentPatient]:
@@ -147,6 +444,59 @@ class LabelSelection(QMainWindow):
             del(self.database[self.currentPatient][self.currentSet])
         except (KeyError, TypeError):
             pass
+        self.updateImage()
+
+
+    def updateImage(self):
+        pixmap = self.drawOverlay()
+        self.overlay.setPixmap(pixmap)
+        self.ResultWindow.updateResult()
+
+
+
+    def drawOverlay(self):
+        # showSel 0: DICOM 1: VG 2: Wiring 3: All label
+        if self.showSavedFlag:
+            selectedLabels = self.database[self.currentPatient][self.currentSet][self.currentFrame]['SelectedLabels'][self.showSavedIdx]
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            dcm = self.getSingleFrameDicom(dcmPath, self.currentFrame)
+            img = cv2.cvtColor(dcm, cv2.COLOR_GRAY2RGB)
+            for key in selectedLabels.keys():
+                label = selectedLabels[key]
+                img = self.drawSavedLabel(label, img, xyswap=True)
+
+        else:
+            self.showVGSaved.setChecked(False)
+            if self.showSel[0]:
+                try:
+                    dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+                    dcm = self.getSingleFrameDicom(dcmPath, self.currentFrame)
+                    img = cv2.cvtColor(dcm, cv2.COLOR_GRAY2RGB)
+                except:
+                    img = cv2.cvtColor(self.currentDCMImgs[self.currentDCMIdx], cv2.COLOR_GRAY2RGB)
+            else:
+                img = np.ones(self.imgSize, dtype=np.uint8) * 255
+            label = self.currentLabel
+            wire = self.wiringPix[self.currentWiringFrame]
+
+            if self.showSel[2]:
+                img = self.drawWire(wire, base=img, xyswap=True, value=[0, 255, 0])
+
+            if self.showSel[1] and self.showSel[3]:
+                img = self.drawAllLabels(label, base=img, xyswap=True, value=[255, 0, 0])
+            elif self.showSel[1]:
+                for key in label.keys():
+                    if self.levelShowSel[key]:
+                        if label[key]:
+                            img = self.drawLabels(label, key, self.levelSel[key], base=img, xyswap=True, value=self.levelColor[key])
+
+
+        w, h, c = img.shape
+        bytesPerLines = 3 * w
+        qImg = QImage(img.data, w, h, bytesPerLines, QImage.Format_RGB888)
+        pixmap = QPixmap(qImg)
+        return pixmap
+
 
 
     def setL1Next(self):
@@ -265,14 +615,30 @@ class LabelSelection(QMainWindow):
             self.level4Prev.setEnabled(False)
 
     def updateParams(self):
+        self.currentWiringFrame = 0
+        self.showSavedFlag = 0
+        self.showSavedIdx = 0
+        self.showVGSaved.setChecked(False)
         self.currentFrameList = self.frameList(self.currentPatient, self.currentSet)
         self.currentFrameIdx = 0
         self.currentFrame = self.currentFrameList[self.currentFrameIdx]
         self.frameOffset = 0
-
+        self.levelShowSel = {1:0, 2:0, 3:0, 4:0}
+        self.levelSel = {1:0, 2:0, 3:0, 4:0}
+        self.level1Check.setChecked(False)
+        self.level2Check.setChecked(False)
+        self.level3Check.setChecked(False)
+        self.level4Check.setChecked(False)
         self.currentDCMImgs, self.currentDCMPaths = self.getDicoms(self.currentPatient,
                                                                    self.currentFrame + self.frameOffset)
-        self.currentDCMIdx = 0
+        
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+            self.currentDCMIdx = 0
 
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
 
@@ -283,46 +649,29 @@ class LabelSelection(QMainWindow):
         self.dcmInfoDisp()
         self.frameInfoDisp()
         self.setLevelButtons()
+        self.showSavedEnb()
 
 
     def updateFrameNum(self):
+        #self.currentWiringFrame = 0
+        self.showSavedFlag = 0
+        self.showSavedIdx = 0
+        self.showVGSaved.setChecked(False)
+        self.levelShowSel = {1:0, 2:0, 3:0, 4:0}
+        self.levelSel = {1:0, 2:0, 3:0, 4:0}
+        self.level1Check.setChecked(False)
+        self.level2Check.setChecked(False)
+        self.level3Check.setChecked(False)
+        self.level4Check.setChecked(False)
         self.currentFrame = self.currentFrameList[self.currentFrameIdx]
         self.currentLabel = self.returnLabels(self.currentPatient, self.currentSet, self.currentFrame)
         self.currentDCMImgs, self.currentDCMPaths = self.getDicoms(self.currentPatient,
                                                                    self.currentFrame + self.frameOffset)
+        
+        self.showSavedEnb()
 
 
-    def updateImage(self):
-        pixmap = self.drawOverlay()
-        self.overlay.setPixmap(pixmap)
-
-
-    def drawOverlay(self):
-        # showSel 0: DICOM 1: VG 2: Wiring 3: All label
-        if self.showSel[0]:
-            img = cv2.cvtColor(self.currentDCMImgs[self.currentDCMIdx], cv2.COLOR_GRAY2RGB)
-        else:
-            img = np.ones(self.imgSize, dtype=np.uint8) * 255
-        label = self.currentLabel
-        wire = self.wiringPix[self.currentWiringFrame]
-
-        if self.showSel[2]:
-            img = self.drawWire(wire, base=img, xyswap=True, value=[0, 255, 0])
-
-        if self.showSel[1] and self.showSel[3]:
-            img = self.drawAllLabels(label, base=img, xyswap=True, value=[255, 0, 0])
-        elif self.showSel[1]:
-            for key in label.keys():
-                if self.levelShowSel[key]:
-                    if label[key]:
-                        img = self.drawLabels(label, key, self.levelSel[key], base=img, xyswap=True, value=self.levelColor[key])
-
-
-        w, h, c = img.shape
-        bytesPerLines = 3 * w
-        qImg = QImage(img.data, w, h, bytesPerLines, QImage.Format_RGB888)
-        pixmap = QPixmap(qImg)
-        return pixmap
+   
 
 
     def drawWire(self, wire, base=None, size=(512,512), xyswap=False, value=[0, 255, 0]):
@@ -375,7 +724,7 @@ class LabelSelection(QMainWindow):
 
     def sliderUpdate(self):
         self.wiringSlider.setMaximum(len(self.wiringPix)-1)
-        self.wiringSlider.setValue(0)
+        self.wiringSlider.setValue(self.currentWiringFrame)
         self.updateImage()
 
 
@@ -391,6 +740,7 @@ class LabelSelection(QMainWindow):
         if self.currentWiringFrame > len(self.wiringPix) - 1:
             self.currentWiringFrame = len(self.wiringPix) - 1
 
+        self.sliderUpdate()
         self.frameInfoDisp()
         self.updateImage()
 
@@ -399,6 +749,7 @@ class LabelSelection(QMainWindow):
         if self.currentWiringFrame < 0:
             self.currentWiringFrame = 0
 
+        self.sliderUpdate()
         self.frameInfoDisp()
         self.updateImage()
 
@@ -411,6 +762,7 @@ class LabelSelection(QMainWindow):
         self.currentFrame = self.currentFrameList[self.currentFrameIdx]
         self.frameInfoDisp()
         self.updateFrameNum()
+        self.levelInfoDisp()
         self.updateImage()
 
     def setAngioFramePrev(self):
@@ -421,6 +773,7 @@ class LabelSelection(QMainWindow):
         self.currentFrame = self.currentFrameList[self.currentFrameIdx]
         self.frameInfoDisp()
         self.updateFrameNum()
+        self.levelInfoDisp()
         self.updateImage()
 
 
@@ -472,11 +825,25 @@ class LabelSelection(QMainWindow):
         self.currentSetIdx += 1
         if self.currentSetIdx > len(self.currentSetList) - 1:
             self.currentSetIdx = len(self.currentSetList) - 1
-
+        
         self.currentSet = self.currentSetList[self.currentSetIdx]
+
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+             self.currentDCMIdx = 0
+        
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
         self.psetDisp.setText("{}".format(self.currentSet))
+        self.currentFrameList = self.frameList(self.currentPatient, self.currentSet)
+        self.currentFrameIdx = 0
         self.updateFrameNum()
+        self.frameInfoDisp()
+        self.currentWiringFrame = 0
+        self.sliderUpdate()
         self.updateImage()
 
 
@@ -486,15 +853,35 @@ class LabelSelection(QMainWindow):
             self.currentSetIdx = 0
 
         self.currentSet = self.currentSetList[self.currentSetIdx]
+        
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+             self.currentDCMIdx = 0
+        
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
         self.psetDisp.setText("{}".format(self.currentSet))
+        self.currentFrameList = self.frameList(self.currentPatient, self.currentSet)
+        self.currentFrameIdx = 0
         self.updateFrameNum()
+        self.frameInfoDisp()
+        self.currentWiringFrame = 0
+        self.sliderUpdate()
         self.updateImage()
 
 
 
     def setDCMNumNext(self):
-        self.currentDCMIdx += 1
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+            self.currentDCMIdx += 1
         if self.currentDCMIdx > len(self.currentDCMPaths) - 1:
             self.currentDCMIdx = len(self.currentDCMPaths) - 1
 
@@ -502,7 +889,13 @@ class LabelSelection(QMainWindow):
         self.updateImage()
 
     def setDCMNumPrev(self):
-        self.currentDCMIdx -= 1
+        try:
+            dcmPath = self.database[self.currentPatient][self.currentSet]['DCMPath']
+            for i in range(len(self.currentDCMPaths)):
+                if dcmPath == self.currentDCMPaths[i]:
+                    self.currentDCMIdx = i
+        except:
+            self.currentDCMIdx -= 1
         if self.currentDCMIdx < 0:
             self.currentDCMIdx = 0
 
@@ -510,14 +903,14 @@ class LabelSelection(QMainWindow):
         self.updateImage()
 
 
-    def patientSet(self, root='./angio_labels' , file='**/*_level1.txt'):
+    def patientSet(self, root='.'+os.sep+'angio_labels' , file='**'+os.sep+'*_level1.txt'):
         dirs = glob(os.path.join(root, file), recursive=True)
         dirs.sort()
 
         plists = {}
 
         for subpath in dirs:
-            splitted = subpath.split('/')
+            splitted = subpath.split(os.sep)
             patient = int(splitted[2])
             if not (patient in plists.keys()):
                 plists[patient] = []
@@ -530,13 +923,13 @@ class LabelSelection(QMainWindow):
 
         return plists
 
-    def setDirectory(self, p, set, root='./angio_labels'):
+    def setDirectory(self, p, set, root='.'+os.sep+'angio_labels'):
         patient = "{0:02d}".format(p)
         path = os.path.join(root, patient)
         path = os.path.join(path, set)
         return path
 
-    def frameList(self, p, set, root='./angio_labels'):
+    def frameList(self, p, set, root='.'+os.sep+'angio_labels'):
         path = self.setDirectory(p, set, root)
 
         labels = glob(os.path.join(path, '*level1.txt'))
@@ -545,7 +938,7 @@ class LabelSelection(QMainWindow):
         fList = []
 
         for label in labels:
-            frame = int(label.split('/')[-1].split('_')[0])
+            frame = int(label.split(os.sep)[-1].split('_')[0])
             fList.append(frame)
 
         return fList
@@ -588,7 +981,22 @@ class LabelSelection(QMainWindow):
                     if x > 511: x = 511
                     if y > 511: y = 511
                     temp.append([x, y])
-                lines.append(temp)
+
+                if len(lines):
+                    lastPos = np.array(lines[-1][-1])
+                    curStart = np.array(temp[0])
+                    dist1 = np.linalg.norm(lastPos-curStart)
+
+                    curEnd = np.array(temp[-1])
+                    lastStart = np.array(lines[-1][0])
+                    dist2 = np.linalg.norm(curEnd-lastStart)
+
+                    if (dist1 < 10) or (dist2 < 10):
+                        lines[-1].extend(temp)
+                    else:
+                        lines.append(temp)
+                else:
+                    lines.append(temp)
 
             labels[level] = lines
 
@@ -607,7 +1015,7 @@ class LabelSelection(QMainWindow):
 
         return base
 
-    def drawAllLabels(self, labels, base=None, size=(512, 512), xyswap=True, value=0):
+    def drawAllLabels(self, labels, base=None, size=(512, 512, 3), xyswap=True, value=0):
         if base is None:
             base = np.ones(size, dtype=np.uint8) * 255
 
@@ -625,27 +1033,43 @@ class LabelSelection(QMainWindow):
 
         return base
 
-    def getDicoms(self, patient, frame, root='./dicoms'):
+
+    def getSingleFrameDicom(self, path, frame):
+        dcmdata = pydicom.dcmread(path)
+        try:
+            angios = dcmdata.pixel_array
+            img = np.array(angios[frame])
+        except IndexError:
+            img = np.ones((512, 512), dtype=np.uint8) * 255
+        except ValueError:
+            img = np.ones((512, 512), dtype=np.uint8) * 255
+        return img
+
+
+    def getDicoms(self, patient, frame, root='.'+os.sep+'dicoms'):
         path = os.path.join(root, '{0:02d}'.format(patient))
-        dpaths = glob(os.path.join(path, '**/IMG*'))
+        dpaths = glob(os.path.join(path, '**'+os.sep+'IMG*'))
         dpaths.sort()
 
         imgs = []
+        validPaths = []
 
         for dcmpath in dpaths:
             dcmdata = pydicom.dcmread(dcmpath)
             try:
                 angios = dcmdata.pixel_array
+                if len(angios[frame].shape) < 2:
+                    continue
                 imgs.append(np.array(angios[frame]))
-            except IndexError:
-                imgs.append(np.ones((512, 512), dtype=np.uint8) * 255)
-            except ValueError:
-                imgs.append(np.ones((512, 512), dtype=np.uint8) * 255)
+                validPaths.append(dcmpath)
+            except:
+                pass
 
-        return imgs, dpaths
+
+        return imgs, validPaths
 
     def returnGuidewire(self, p, set, drawCat=False):
-        path = self.setDirectory(p, set, root='./gw_labels')
+        path = self.setDirectory(p, set, root='.'+os.sep+'gw_labels')
         tips = glob(os.path.join(path, '*tip.txt'))
         bodies = glob(os.path.join(path, '*body.txt'))
         cats = glob(os.path.join(path, '*ter.txt'))
@@ -717,7 +1141,7 @@ class LabelSelection(QMainWindow):
 
     def getIntersection(self):
         angio = self.patientSet(self.angioRoot)
-        wiring = self.patientSet(self.wiringRoot, '**/*.txt')
+        wiring = self.patientSet(self.wiringRoot, '**'+os.sep+'*.txt')
 
         intersection = {}
 
@@ -747,7 +1171,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     sel = LabelSelection()
     app.exec_()
-    #plists = sel.patientSet('./gw_labels', '**/*.txt')
+    #plists = sel.patientSet('.'+os.sep+'gw_labels', '**'+os.sep+'*.txt')
     #gwImgs = sel.drawGuidewires(1, 'set01')
     #labels = returnLabels(1, 'set01', 43)
     #test = drawLabels(labels, 'L1', 1)

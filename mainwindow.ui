@@ -404,7 +404,7 @@
     <property name="geometry">
      <rect>
       <x>530</x>
-      <y>600</y>
+      <y>610</y>
       <width>111</width>
       <height>32</height>
      </rect>
@@ -455,7 +455,7 @@
      <string>Show Wiring</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="saveSetting">
+   <widget class="QPushButton" name="saveSettingBut">
     <property name="geometry">
      <rect>
       <x>170</x>
@@ -491,7 +491,7 @@
      </rect>
     </property>
    </widget>
-   <widget class="QPushButton" name="savePath">
+   <widget class="QPushButton" name="savePathBut">
     <property name="geometry">
      <rect>
       <x>20</x>
@@ -939,7 +939,7 @@
     <property name="geometry">
      <rect>
       <x>680</x>
-      <y>600</y>
+      <y>610</y>
       <width>111</width>
       <height>32</height>
      </rect>
@@ -948,29 +948,33 @@
      <string>Show Result</string>
     </property>
    </widget>
-   <widget class="QLabel" name="selectedSetting">
+   <widget class="QLabel" name="selectedSaved">
     <property name="geometry">
      <rect>
-      <x>630</x>
-      <y>535</y>
-      <width>58</width>
+      <x>597</x>
+      <y>545</y>
+      <width>121</width>
       <height>41</height>
      </rect>
     </property>
     <property name="font">
      <font>
-      <pointsize>20</pointsize>
+      <family>Arial</family>
+      <pointsize>18</pointsize>
      </font>
     </property>
     <property name="text">
      <string/>
     </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
    </widget>
-   <widget class="QPushButton" name="setitingVGNext">
+   <widget class="QPushButton" name="setSavedNext">
     <property name="geometry">
      <rect>
-      <x>700</x>
-      <y>531</y>
+      <x>720</x>
+      <y>541</y>
       <width>61</width>
       <height>51</height>
      </rect>
@@ -982,11 +986,11 @@
      <bool>true</bool>
     </property>
    </widget>
-   <widget class="QPushButton" name="settingVGPrev">
+   <widget class="QPushButton" name="setSavedPrev">
     <property name="geometry">
      <rect>
-      <x>560</x>
-      <y>530</y>
+      <x>540</x>
+      <y>540</y>
       <width>61</width>
       <height>51</height>
      </rect>
@@ -998,6 +1002,22 @@
      <bool>true</bool>
     </property>
    </widget>
+   <widget class="QCheckBox" name="showVGSaved">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>530</x>
+      <y>500</y>
+      <width>111</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Show Saved</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -1005,7 +1025,7 @@
      <x>0</x>
      <y>0</y>
      <width>800</width>
-     <height>22</height>
+     <height>21</height>
     </rect>
    </property>
   </widget>

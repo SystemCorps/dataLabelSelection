@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import *
 from PyQt5 import uic
 from PyQt5.QtGui import QPixmap, QImage
 from PIL import Image, ImageDraw
+from pathlib import Path, PureWindowsPath
 
 import matplotlib.pyplot as plt
 
@@ -75,7 +76,7 @@ class LabelSelection(QMainWindow):
         self.steps = 50
         self.minLen = 30
 
-        self.TotalList = self.getIntersection()
+        self.TotalList, self.totalCount = self.getIntersection()
 
         try:
             with open(self.savePath, 'rb') as pklfile:
@@ -84,7 +85,7 @@ class LabelSelection(QMainWindow):
         except:
             self.database = dict.fromkeys(list(self.TotalList.keys()))
 
-        self.ResultWindow = ResultWindow(self)
+
 
 
         # Selectable
@@ -109,7 +110,7 @@ class LabelSelection(QMainWindow):
 
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
         self.currentWiringFrame = 0
-
+        self.currentDCMIdx = 0
         self.currentDCMImgs, self.currentDCMPaths = self.getDicoms(self.currentPatient,
                                                                    self.currentFrame + self.frameOffset)
         try:
@@ -120,11 +121,13 @@ class LabelSelection(QMainWindow):
         except:
              self.currentDCMIdx = 0
 
+        self.ResultWindow = ResultWindow(self)
         self.sliderUpdate()
 
-
-        self.pnumDisp.setText("{}".format(self.currentPatient))
-        self.psetDisp.setText("{}".format(self.currentSet))
+        self.numPat = len(self.TotalList.keys())
+        self.numSet = len(self.currentSetList)
+        self.pnumDisp.setText("{} ({} / {})".format(self.currentPatient, self.currentPatientIdx+1, self.numPat))
+        self.psetDisp.setText("{} ({} / {})".format(self.currentSet, self.currentSetIdx+1, self.numSet))
 
         # Buttons
         self.dcmNumNext.clicked.connect(self.setDCMNumNext)
@@ -207,11 +210,27 @@ class LabelSelection(QMainWindow):
                 pData = self.database[patient]
                 for set in pData.keys():
                     sData = pData[set]
-                    dcmData = pydicom.dcmread(sData['DCMPath'])
+                    try:
+                        dcmData = pydicom.dcmread(sData['DCMPath'])
+                    except FileNotFoundError:
+                        filename = PureWindowsPath(sData['DCMPath'])
+                        path = Path(filename)
+                        dcmData = pydicom.dcmread(path)
+
                     angios = dcmData.pixel_array
                     
                     frameList = list(sData.keys())
                     frameList.remove('DCMPath')
+
+                    wiring = self.returnGuidewire(patient, set)
+                    #self.drawWire(wire, base=None, xyswap=True, value=[0, 255, 0])
+                    for wi in range(len(wiring)):
+                        wImg = self.drawWire(wiring[wi], base=None, xyswap=True, value=0)
+                        PILwImg = Image.fromarray(wImg)
+                        head, name, full = self.savePathName(patient, set, 'fluoro', wi)
+                        if not os.path.exists(head):
+                            os.makedirs(head)
+                        PILwImg.save(full)
 
                     for frame in frameList:
                         refAngio = angios[frame]
@@ -256,8 +275,10 @@ class LabelSelection(QMainWindow):
         head = temp
         if angio:
             name = "{0:05d}.png".format(frame)
-        else:
+        elif stepIdx is not None:
             name = "{0:03d}_".format(frame) + "{0:05d}.png".format(stepIdx)
+        else:
+            name = "{0:05d}.png".format(frame)
         full = os.path.join(head, name)
         return head, name, full
 
@@ -667,7 +688,8 @@ class LabelSelection(QMainWindow):
         self.currentLabel = self.returnLabels(self.currentPatient, self.currentSet, self.currentFrame)
         self.currentDCMImgs, self.currentDCMPaths = self.getDicoms(self.currentPatient,
                                                                    self.currentFrame + self.frameOffset)
-        
+
+        self.setLevelButtons()
         self.showSavedEnb()
 
 
@@ -798,8 +820,9 @@ class LabelSelection(QMainWindow):
         self.currentSetIdx = 0
         self.currentSet = self.currentSetList[self.currentSetIdx]
 
-        self.pnumDisp.setText("{}".format(self.currentPatient))
-        self.psetDisp.setText("{}".format(self.currentSet))
+        self.numSet = len(self.currentSetList)
+        self.pnumDisp.setText("{} ({} / {})".format(self.currentPatient, self.currentPatientIdx+1, self.numPat))
+        self.psetDisp.setText("{} ({} / {})".format(self.currentSet, self.currentSetIdx+1, self.numSet))
 
         self.updateParams()
         self.updateImage()
@@ -814,8 +837,9 @@ class LabelSelection(QMainWindow):
         self.currentSetIdx = 0
         self.currentSet = self.currentSetList[self.currentSetIdx]
 
-        self.pnumDisp.setText("{}".format(self.currentPatient))
-        self.psetDisp.setText("{}".format(self.currentSet))
+        self.numSet = len(self.currentSetList)
+        self.pnumDisp.setText("{} ({} / {})".format(self.currentPatient, self.currentPatientIdx+1, self.numPat))
+        self.psetDisp.setText("{} ({} / {})".format(self.currentSet, self.currentSetIdx+1, self.numSet))
 
         self.updateParams()
         self.updateImage()
@@ -837,7 +861,7 @@ class LabelSelection(QMainWindow):
              self.currentDCMIdx = 0
         
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
-        self.psetDisp.setText("{}".format(self.currentSet))
+        self.psetDisp.setText("{} ({} / {})".format(self.currentSet, self.currentSetIdx+1, self.numSet))
         self.currentFrameList = self.frameList(self.currentPatient, self.currentSet)
         self.currentFrameIdx = 0
         self.updateFrameNum()
@@ -863,7 +887,7 @@ class LabelSelection(QMainWindow):
              self.currentDCMIdx = 0
         
         self.wiringPix = self.returnGuidewire(self.currentPatient, self.currentSet)
-        self.psetDisp.setText("{}".format(self.currentSet))
+        self.psetDisp.setText("{} ({} / {})".format(self.currentSet, self.currentSetIdx+1, self.numSet))
         self.currentFrameList = self.frameList(self.currentPatient, self.currentSet)
         self.currentFrameIdx = 0
         self.updateFrameNum()
@@ -1035,7 +1059,12 @@ class LabelSelection(QMainWindow):
 
 
     def getSingleFrameDicom(self, path, frame):
-        dcmdata = pydicom.dcmread(path)
+        try:
+            dcmdata = pydicom.dcmread(path)
+        except FileNotFoundError:
+            filename = PureWindowsPath(path)
+            path = Path(filename)
+            dcmdata = pydicom.dcmread(path)
         try:
             angios = dcmdata.pixel_array
             img = np.array(angios[frame])
@@ -1149,7 +1178,7 @@ class LabelSelection(QMainWindow):
         wiringKeys = list(wiring.keys())
 
         interKeys = list(set(angioKeys) & set(wiringKeys))
-
+        count = 0
         for key in interKeys:
             angioSetList = angio[key]
             wiringSetList = wiring[key]
@@ -1157,8 +1186,9 @@ class LabelSelection(QMainWindow):
             
             if interSetList:
                 intersection[key] = interSetList
+                count+=1
                 
-        return intersection
+        return intersection, count
 
 
 

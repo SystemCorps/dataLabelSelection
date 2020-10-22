@@ -6,6 +6,8 @@ import sys
 from glob import glob
 import json
 import pickle
+import pickle5
+import platform
 import gzip
 import sys
 from PyQt5.QtWidgets import *
@@ -82,7 +84,11 @@ class LabelSelection(QMainWindow):
             with open(self.savePath, 'rb') as pklfile:
                 self.database = pickle.load(pklfile)
             self.database.keys()
-        except:
+        except ValueError:
+            with open(self.savePath, 'rb') as pklfile:
+                self.database = pickle5.load(pklfile)
+            self.database.keys()
+        except FileNotFoundError:
             self.database = dict.fromkeys(list(self.TotalList.keys()))
 
 
@@ -194,7 +200,10 @@ class LabelSelection(QMainWindow):
 
     def save(self):
         with open(self.savePath, 'wb') as pklfile:
-            pickle.dump(self.database, pklfile, pickle.HIGHEST_PROTOCOL)
+            if platform.system() == 'Linux':
+                pickle5.dump(self.database, pklfile, pickle.HIGHEST_PROTOCOL)
+            else:
+                pickle.dump(self.database, pklfile, pickle.HIGHEST_PROTOCOL)
 
     def setGenSaveRoot(self):
         self.genSavePath = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
@@ -1015,7 +1024,7 @@ class LabelSelection(QMainWindow):
                     lastStart = np.array(lines[-1][0])
                     dist2 = np.linalg.norm(curEnd-lastStart)
 
-                    if (dist1 < 10) or (dist2 < 10):
+                    if ((dist1 < 10) or (dist2 < 10)) and len(lines) < 2800:
                         lines[-1].extend(temp)
                     else:
                         lines.append(temp)

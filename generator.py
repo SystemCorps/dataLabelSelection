@@ -1068,6 +1068,8 @@ class LabelSelection(QMainWindow):
 
 
     def getSingleFrameDicom(self, path, frame):
+        if '\\' in path:
+            path = path.replace('\\', '/')
         try:
             dcmdata = pydicom.dcmread(path)
         except FileNotFoundError:

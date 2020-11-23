@@ -2,11 +2,10 @@ import cv2
 import pydicom
 import numpy as np
 import os
-import sys
 from glob import glob
 import json
 import pickle
-import pickle5
+#import pickle5
 import platform
 import gzip
 import sys
@@ -1068,6 +1067,8 @@ class LabelSelection(QMainWindow):
 
 
     def getSingleFrameDicom(self, path, frame):
+        if '\\' in path:
+            path = path.replace('\\', '/')
         try:
             dcmdata = pydicom.dcmread(path)
         except FileNotFoundError:

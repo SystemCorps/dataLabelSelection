@@ -5,11 +5,8 @@ import os
 from glob import glob
 import json
 import pickle
-<<<<<<< HEAD
 import pickle5
-=======
 #import pickle5
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136
 import platform
 import gzip
 import sys
@@ -32,12 +29,9 @@ class DataLoading():
         self.TotalList, self.totalCount = self.getIntersection()
 
         with open(self.dbPath, 'rb') as pklfile:
-<<<<<<< HEAD
             self.database = pickle5.load(pklfile)
-=======
-            self.database = pickle.load(pklfile)
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136
-            
+            #self.database = pickle.load(pklfile)
+
             
 
     def savePathName(self, patient, set, folder, frame, subIdx=None, stepIdx=None, angio=False):
@@ -160,12 +154,9 @@ class DataLoading():
         return path
     
     
-    
-<<<<<<< HEAD
+
     def returnGuidewire(self, p, set, drawCat=False, tipOnly=True, thresh=4):
-=======
-    def returnGuidewire(self, p, set, drawCat=False, tipOnly=True):
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136
+
         path = self.setDirectory(p, set, root='.'+os.sep+'gw_labels')
         tips = glob(os.path.join(path, '*tip.txt'))
         bodies = glob(os.path.join(path, '*body.txt'))
@@ -207,10 +198,8 @@ class DataLoading():
 
             tipF = open(tpath, 'r')
             tData = tipF.readlines()
-<<<<<<< HEAD
             first = True
-=======
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136
+
             for xy in tData:
                 xstr = xy.split(' ')[0]
                 ystr = xy.split(' ')[1]
@@ -218,14 +207,13 @@ class DataLoading():
                 y = int(float(ystr))
                 if x > 511: x = 511
                 if y > 511: y = 511
-<<<<<<< HEAD
+                    
                 if first:
                     first = False
                     dist = np.linalg.norm(np.array(temp[-1]) - np.array([x, y]))
                     if dist > thresh:
                         temp.reverse()
-=======
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136
+
                 temp.append([x, y])
             tipF.close()
 
@@ -291,8 +279,7 @@ class DataLoading():
             if interSetList:
                 intersection[key] = interSetList
                 count+=1
-                
-<<<<<<< HEAD
+
         return intersection, count
     
     
@@ -465,6 +452,3 @@ def loadFirstPoint(p, s, db_path='../Medical_final_labels/setting.pkl', save='Tr
         return vgws, vgw_mean_new
     else:
         return vgw_first, vgw_mean_new
-=======
-        return intersection, count
->>>>>>> fcf961d069b5c6f3bd18f40cdd3fd31fe76f9136

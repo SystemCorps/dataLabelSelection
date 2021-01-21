@@ -362,6 +362,33 @@ def returnGuidewireNew(path, vgwMean, drawCat=False, tipOnly=True):
 
     return gws
 
+def returnCatheter(path, vgwMean):
+    cats = glob(os.path.join(path, '*ter.txt'))
+    cats.sort()
+    
+    catheters = []
+    for cpath in cats:
+        tempC = []
+        catF = open(cpath, 'r')
+        cData = catF.readlines()
+        
+        for xy in cData:
+            xstr = xy.split(' ')[0]
+            ystr = xy.split(' ')[1]
+            x = int(float(xstr))
+            y = int(float(ystr))
+            if x > 511: x = 511
+            if y > 511: y = 511
+            tempC.append([x, y])
+        catF.close()
+        
+        if returnReverse(tempC[0], tempC[-1], vgwMean):
+            tempC.reverse()
+            
+        catheters.append(tempC)
+        
+    return catheters
+
 
 def makeAngioOverlay(root):
     angio_dirs = glob(os.path.join(root, 'Angio/*.png'))
